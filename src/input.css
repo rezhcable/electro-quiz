@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Inter (подмножество: латиница + кириллица, веса 400–700), лежит локально — работает офлайн */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('../assets/fonts/inter-var-latin-cyrillic.woff') format('woff');
+}
+
+* { -webkit-tap-highlight-color: transparent; }
+body { overscroll-behavior: none; }
+.option-btn { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+.option-btn:active { transform: scale(0.98); }
+.glass { background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
