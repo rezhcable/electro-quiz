@@ -219,6 +219,15 @@ function renderQuestion() {
   document.getElementById('quiz-ticket').textContent =
     (state.review ? 'Просмотр · ' : '') + 'Билет ' + state.ticket;
 
+  // «Вопрос 3 из 10» (цифры — textContent, без innerHTML)
+  const prog = document.getElementById('quiz-progress');
+  prog.textContent = '';
+  prog.append('Вопрос ' + (state.current + 1) + ' ');
+  const total = document.createElement('span');
+  total.className = 'text-slate-400 font-medium';
+  total.textContent = 'из ' + n;
+  prog.appendChild(total);
+
   const shown = saved || state.plan[state.current];
   const options = shown.options;
   const correctIdx = shown.correctIdx;
