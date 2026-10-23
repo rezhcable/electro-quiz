@@ -12,9 +12,14 @@
 }
 
 * { -webkit-tap-highlight-color: transparent; }
+/* без зума по двойному тапу (на iOS после снятия user-scalable=no) */
+html, body, button { touch-action: manipulation; }
 body { overscroll-behavior: none; }
 .option-btn { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
 .option-btn:active { transform: scale(0.98); }
+/* Точки-переходы: визуально 10 px, зона нажатия больше (невидимая, не влияет на вёрстку) */
+.dot-btn { position: relative; }
+.dot-btn::after { content: ''; position: absolute; inset: -12px -3px; }
 .glass { background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
 
 @media (prefers-reduced-motion: reduce) {

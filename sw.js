@@ -1,4 +1,4 @@
-const CACHE = 'electro-quiz-v17';
+const CACHE = 'electro-quiz-v18';
 const ASSETS = [
   './',
   './index.html',
@@ -13,7 +13,6 @@ const ASSETS = [
   './assets/icons/icon-maskable-192.png',
   './assets/icons/icon-maskable-512.png',
   './assets/icons/apple-touch-icon.png'
-  // bandit.gif — запасной вариант для браузеров без WebP; кэшируется при первом запросе
 ];
 
 // Сколько ждать сеть для «сначала сеть» (мс), прежде чем отдать кэш — чтобы не висеть на плохой связи

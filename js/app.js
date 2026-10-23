@@ -112,7 +112,7 @@ function startQuiz(ticket, mode) {
     ticket,
     current: 0,
     answers: freshAnswers(n),
-    plan: examData[ticket].map(q => buildOptions(q, mode === 'random')),
+    plan: examData[ticket].map(q => buildOptions(q, true)),
     mode,
     review: false,
     browsingPast: false
@@ -159,7 +159,7 @@ function renderDots() {
 
     const canJump = state.review || a !== null || i === state.current || i === workIdx;
     if (canJump) {
-      cls += ' cursor-pointer active:scale-90';
+      cls += ' dot-btn cursor-pointer active:scale-90';
       btn.onclick = () => jumpTo(i);
     } else {
       cls += ' opacity-40 cursor-default';
@@ -179,10 +179,18 @@ function jumpTo(i) {
   // browsingPast только если реально ушли на другой (уже отвеченный) вопрос
   state.browsingPast = !state.review && state.answers[i] !== null && workIdx !== -1 && i !== workIdx && i !== state.current;
   state.current = i;
+  const fromDot = document.activeElement && document.activeElement.closest && document.activeElement.closest('#quiz-dots');
   renderQuestion();
+  // точки пересоздаются — возвращаем фокус на ту же точку
+  if (fromDot) {
+    const dot = document.getElementById('quiz-dots').children[i];
+    if (dot) dot.focus({ preventScroll: true });
+  }
 }
 
 // ===== ВОПРОС =====
+const ICON_CHECK = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>';
+const ICON_CROSS = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 6l12 12M18 6L6 18"/></svg>';
 function shuffleIndices(n) {
   const indices = Array.from({ length: n }, (_, i) => i);
   for (let i = n - 1; i > 0; i--) {
@@ -256,9 +264,22 @@ function renderQuestion() {
     }
     btn.className = cls;
 
+    // Верно/неверно — не только цветом: значок в «номерке» + подпись для скринридера
+    const isRight = isLocked && i === correctIdx;
+    const isWrongPick = !!saved && i === saved.chosen && !saved.isCorrect;
     const num = document.createElement('span');
-    num.className = 'inline-flex items-center justify-center w-7 h-7 rounded-lg bg-slate-700 text-sm font-medium mr-3 shrink-0';
-    num.textContent = String(i + 1);
+    num.className = 'inline-flex items-center justify-center w-7 h-7 rounded-lg text-sm font-medium mr-3 shrink-0 ' +
+      (isRight ? 'bg-emerald-600 text-white' : isWrongPick ? 'bg-red-600 text-white' : 'bg-slate-700');
+    if (isRight) num.innerHTML = ICON_CHECK;
+    else if (isWrongPick) num.innerHTML = ICON_CROSS;
+    else num.textContent = String(i + 1);
+    if (isLocked) {
+      btn.disabled = true;
+      let note = '';
+      if (isRight) note = saved && saved.chosen === i ? '. Верно, это ваш ответ' : '. Правильный ответ';
+      else if (isWrongPick) note = '. Ваш ответ, неверно';
+      btn.setAttribute('aria-label', (i + 1) + '. ' + opt + note);
+    }
 
     const text = document.createElement('span');
     text.className = 'text-[15px] leading-snug';
@@ -288,6 +309,9 @@ function selectAnswer(chosen) {
   renderQuestion();
   const fb = document.getElementById('feedback');
   const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // фокус на «Следующий вопрос» — иначе после перерисовки вариантов он теряется (важно для клавиатуры)
+  const nb = document.getElementById('btn-next');
+  if (nb && !nb.classList.contains('hidden')) nb.focus({ preventScroll: true });
   if (fb) fb.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
 }
 
