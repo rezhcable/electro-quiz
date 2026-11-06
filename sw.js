@@ -1,10 +1,10 @@
-const CACHE = 'electro-quiz-v18';
+const CACHE = 'electro-quiz-v19';
 const ASSETS = [
   './',
   './index.html',
   './css/tailwind.css',
   './js/app.js',
-  './data/exam_data.json',
+  './data/exam_data.txt',
   './manifest.json',
   './assets/fonts/inter-var-latin-cyrillic.woff',
   './assets/bandit.webp',
@@ -33,10 +33,10 @@ self.addEventListener('activate', (e) => {
 });
 
 function isCode(request, url) {
-  return request.mode === 'navigate' || /\.(html|js|json|css)$/.test(url.pathname);
+  return request.mode === 'navigate' || /\.(html|js|json|css|txt)$/.test(url.pathname);
 }
 
-// HTML/JS/CSS/JSON: сначала сеть (чтобы обновления доходили), при сбое или таймауте — кэш
+// HTML/JS/CSS/JSON/TXT (данные): сначала сеть (чтобы обновления доходили), при сбое или таймауте — кэш
 async function networkFirst(request) {
   const cache = await caches.open(CACHE);
   const net = fetch(request).then((res) => {
