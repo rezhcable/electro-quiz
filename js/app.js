@@ -1,15 +1,81 @@
 // ===== ДАННЫЕ =====
 let examData = null;
 
+// Формат data/exam_data.txt общий с Telegram-ботом (elecbot), описан в шапке самого файла.
+// Разбор повторяет парсер бота (data.go), чтобы оба проекта читали файл одинаково:
+//   # Билет N · ? вопрос · - неверный · + правильный · строка без маркера продолжает предыдущую
+//   (с переносом строки), // комментарий, пустые строки игнорируются.
+function parseExamData(text) {
+  const tickets = {};
+  const declared = new Set();
+  let ticket = 0;
+  let cur = null;
+
+  const flush = () => {
+    if (!cur) return;
+    const b = cur;
+    cur = null;
+    const where = `строка ${b.line}: «${b.text.slice(0, 60)}»`;
+    if (b.opts.length < 2) throw new Error(`${where} — меньше двух вариантов ответа`);
+    if (b.correct.length === 0) throw new Error(`${where} — нет правильного ответа (нужна строка «+ »)`);
+    if (b.correct.length > 1) throw new Error(`${where} — несколько правильных ответов (нужен ровно один «+ »)`);
+    tickets[ticket].push({ question: b.text, options: b.opts, correct: b.correct[0] });
+  };
+  const isMarker = (s) => /^[?+-](\s|$)/.test(s);
+
+  const lines = text.replace(/^\uFEFF/, '').split('\n');
+  lines.forEach((rawLine, i) => {
+    const lineNo = i + 1;
+    const line = rawLine.trim();
+    const at = (msg) => new Error(`exam_data.txt:${lineNo}: ${msg}`);
+
+    if (line === '' || line.startsWith('//')) return;
+
+    if (line.startsWith('#')) {
+      flush();
+      const m = /^#\s*билет\s+(\d+)$/i.exec(line);
+      if (!m) throw at('ожидался заголовок вида «# Билет 3»');
+      const n = Number(m[1]);
+      if (n <= 0) throw at('номер билета должен быть больше нуля');
+      if (declared.has(n)) throw at(`билет ${n} уже был объявлен`);
+      declared.add(n);
+      ticket = n;
+      tickets[n] = [];
+    } else if (line[0] === '?' && isMarker(line)) {
+      if (!ticket) throw at('вопрос до первого заголовка «# Билет N»');
+      flush();
+      const t = line.slice(1).trim();
+      if (!t) throw at('пустой вопрос');
+      cur = { line: lineNo, text: t, opts: [], correct: [] };
+    } else if (isMarker(line)) {
+      if (!cur) throw at('вариант ответа без вопроса: перед ним нужна строка «? текст вопроса»');
+      const t = line.slice(1).trim();
+      if (!t) throw at('пустой вариант ответа');
+      cur.opts.push(t);
+      if (line[0] === '+') cur.correct.push(cur.opts.length - 1);
+    } else {
+      // строка без маркера продолжает предыдущую (с переносом строки)
+      if (!cur) throw at('текст вне вопроса: строка без «?», «+», «-» должна продолжать вопрос или вариант');
+      if (cur.opts.length === 0) cur.text += '\n' + line;
+      else cur.opts[cur.opts.length - 1] += '\n' + line;
+    }
+  });
+  flush();
+
+  const nums = Object.keys(tickets).map(Number).sort((a, b) => a - b);
+  if (!nums.length) throw new Error('в файле нет ни одного билета');
+  nums.forEach((n, i) => {
+    if (n !== i + 1) throw new Error(`номера билетов должны идти подряд: ожидался ${i + 1}, найден ${n}`);
+    if (!tickets[n].length) throw new Error(`в билете ${n} нет вопросов`);
+  });
+  return tickets;
+}
+
 async function loadData() {
   try {
-    const res = await fetch('data/exam_data.json');
+    const res = await fetch('data/exam_data.txt');
     if (!res.ok) throw new Error('Не удалось загрузить данные');
-    const raw = await res.json();
-    examData = {};
-    for (const [k, v] of Object.entries(raw)) {
-      examData[Number(k)] = v;
-    }
+    examData = parseExamData(await res.text());
     return true;
   } catch (e) {
     console.error(e);
@@ -46,20 +112,59 @@ function freshAnswers(n) {
   return Array(n).fill(null);
 }
 
-function showScreen(id) {
-  ['start', 'tickets', 'quiz', 'result'].forEach(s => {
-    document.getElementById('screen-' + s).classList.toggle('hidden', s !== id);
+// История браузера: «Назад» (свайп / системная кнопка) не должен закрывать приложение.
+// Главная — базовая запись; любой другой экран занимает ровно одну запись поверх неё.
+let currentScreen = 'start';
+
+function showScreen(id, fromHistory) {
+  ['start', 'tickets', 'quiz', 'result', 'pin', 'search'].forEach(s => {
+    const el = document.getElementById('screen-' + s);
+    if (el) el.classList.toggle('hidden', s !== id);
   });
+  currentScreen = id;
   window.scrollTo(0, 0);
+  if (fromHistory) return;
+  try {
+    const cur = history.state && history.state.screen;
+    if (id === 'start') {
+      if (cur && cur !== 'start') history.back(); // вернёмся на базовую запись
+    } else if (!cur || cur === 'start') {
+      history.pushState({ screen: id }, '');
+    } else {
+      history.replaceState({ screen: id }, '');
+    }
+  } catch (e) {}
 }
 
-function goStart() {
+function quizInProgress() {
+  return currentScreen === 'quiz' && !state.review && state.answers.some(a => a === null);
+}
+
+window.addEventListener('popstate', (e) => {
+  const target = (e.state && e.state.screen) || 'start';
+  if (target === currentScreen) return;
+  if (quizInProgress()) {
+    // вернули запись квиза на место и спросили подтверждение, а не вылетаем
+    try { history.pushState({ screen: 'quiz' }, ''); } catch (err) {}
+    exitQuiz();
+    return;
+  }
+  goStart(true);
+});
+
+function goStart(fromHistory) {
   state = { ticket: null, current: 0, answers: [], plan: [], mode: null, review: false, browsingPast: false };
   closeExitModal();
-  showScreen('start');
+  resetPin();
+  showScreen('start', fromHistory === true);
+  if (fromHistory === true) {
+    try { history.replaceState({ screen: 'start' }, ''); } catch (err) {}
+  }
 }
 
 function exitQuiz() {
+  const modal = document.getElementById('exit-modal');
+  if (modal && !modal.classList.contains('hidden')) return; // уже открыта
   exitModalOpener = document.activeElement;
   document.getElementById('exit-modal').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
@@ -246,7 +351,9 @@ function renderQuestion() {
   state._view = view;
   if (viewChanged) window.scrollTo(0, 0);
 
-  document.getElementById('question-text').textContent = q.question;
+  const qEl = document.getElementById('question-text');
+  qEl.textContent = q.question;
+  qEl.style.whiteSpace = 'pre-line'; // переносы строк из exam_data.txt
 
   const list = document.getElementById('options-list');
   list.innerHTML = '';
@@ -284,6 +391,7 @@ function renderQuestion() {
     const text = document.createElement('span');
     text.className = 'text-[15px] leading-snug';
     text.textContent = opt;
+    text.style.whiteSpace = 'pre-line';
 
     btn.appendChild(num);
     btn.appendChild(text);
@@ -436,6 +544,379 @@ function showResult() {
   showScreen('result');
 }
 
+// ===== СЕКРЕТНЫЙ ВХОД + ПОИСК (как в боте) =====
+// PIN хранится как SHA-256 от (соль + PIN). Это скрывает код от беглого взгляда в исходники,
+// но не защита: 4 цифры подбираются мгновенно. Чтобы сменить PIN, см. README.
+// Нужен защищённый контекст (https / localhost) — на GitHub Pages он есть.
+const PIN_SALT = 'eq:v1:';
+const PIN_HASH = 'f6489ea2bfdf1e7b4b35845bae9a1ec0755f153a458af7c38860679f669a18e4';
+const SEARCH_LIMIT = 5;
+const SECRET_TAPS_NEEDED = 5;
+
+let secretTapCount = 0;
+let secretTapTimer = null;
+let pinValue = '';
+let searchIndex = null;
+let searchShowAll = false;
+let pinChecking = false;
+
+async function sha256Hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function pinIsValid(pin) {
+  try {
+    return (await sha256Hex(PIN_SALT + pin)) === PIN_HASH;
+  } catch (e) {
+    return false;
+  }
+}
+
+function buzz(ms) {
+  try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {}
+}
+
+const HOMOGLYPHS = {
+  'а': 'a', 'с': 'c', 'е': 'e', 'о': 'o', 'р': 'p', 'х': 'x',
+  'у': 'y', 'к': 'k', 'м': 'm', 'н': 'h', 'т': 't', 'в': 'b'
+};
+
+function norm(s) {
+  return String(s).toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/[асеорхукмнтв]/g, ch => HOMOGLYPHS[ch] || ch);
+}
+
+function stem(word) {
+  if (word.length <= 4) return word;
+  return word.slice(0, Math.max(4, Math.min(6, word.length - 2)));
+}
+
+function buildSearchIndex() {
+  if (!examData) return [];
+  const unique = new Map();
+  for (const [ticketStr, questions] of Object.entries(examData)) {
+    const ticket = Number(ticketStr);
+    questions.forEach((q, idx) => {
+      const correctText = q.options[q.correct];
+      const key = norm(q.question) + '\0' + norm(correctText);
+      if (!unique.has(key)) {
+        unique.set(key, {
+          question: q.question,
+          correct: correctText,
+          q_norm: norm(q.question),
+          o_norm: norm(q.options.join(' ')),
+          places: []
+        });
+      }
+      unique.get(key).places.push([ticket, idx + 1]);
+    });
+  }
+  return Array.from(unique.values());
+}
+
+// Как Python \w: буквы (в т.ч. кириллица) + цифры + _
+const WORD_RE = /[\p{L}\p{N}_]+/gu;
+const WORD_CHAR = /[\p{L}\p{N}_]/u;
+
+// Границы совпадения для коротких стемов:
+//  1–2 буквы — только целое слово (аббревиатуры: «ВЛ», «ЛЭП»);
+//  3 буквы — с начала слова («ток» → «тока», «током»);
+//  4+ — любая подстрока.
+function matchAt(s, text, i) {
+  if (s.length > 3) return true;
+  const before = i === 0 || !WORD_CHAR.test(text[i - 1]);
+  const after = s.length === 3 || i + s.length >= text.length || !WORD_CHAR.test(text[i + s.length]);
+  return before && after;
+}
+
+function findMatches(s, text, firstOnly) {
+  const out = [];
+  let from = 0;
+  while (from <= text.length) {
+    const i = text.indexOf(s, from);
+    if (i === -1) break;
+    if (matchAt(s, text, i)) {
+      out.push(i);
+      if (firstOnly) break;
+    }
+    from = i + 1;
+  }
+  return out;
+}
+
+function queryStems(query) {
+  // как в боте: re.findall(r'\w+', norm(query)) + len > 1 + stem
+  return (norm(query).match(WORD_RE) || [])
+    .filter(w => w.length > 1)
+    .map(stem);
+}
+
+function searchQuestions(query, limit) {
+  if (!searchIndex) searchIndex = buildSearchIndex();
+  const stems = queryStems(query);
+  if (!stems.length) return { results: [], total: 0, stems };
+
+  const has = (s, text) => findMatches(s, text, true).length > 0;
+
+  const scored = [];
+  for (const item of searchIndex) {
+    let score = 0;
+    for (const s of stems) {
+      if (has(s, item.q_norm)) score += 2;
+      else if (has(s, item.o_norm)) score += 1;
+    }
+    if (score) scored.push({ score, item });
+  }
+  if (!scored.length) return { results: [], total: 0, stems };
+
+  const best = Math.max(...scored.map(x => x.score));
+  const top = scored.filter(x => x.score === best).map(x => x.item);
+  return { results: top.slice(0, limit === undefined ? SEARCH_LIMIT : limit), total: top.length, stems };
+}
+
+// Подсветка найденных слов целиком. Нормализация не меняет длину строки,
+// поэтому позиции из нормализованного текста подходят к исходному.
+function highlight(text, stems) {
+  const n = norm(text);
+  if (n.length !== text.length) return escapeHtml(text);
+  const marks = [];
+  for (const s of stems) {
+    for (const i of findMatches(s, n, false)) {
+      let end = i + s.length;
+      while (end < n.length && WORD_CHAR.test(n[end])) end++;
+      marks.push([i, end]);
+    }
+  }
+  if (!marks.length) return escapeHtml(text);
+  marks.sort((a, b) => a[0] - b[0]);
+  const merged = [marks[0].slice()];
+  for (let k = 1; k < marks.length; k++) {
+    const last = merged[merged.length - 1];
+    if (marks[k][0] <= last[1]) last[1] = Math.max(last[1], marks[k][1]);
+    else merged.push(marks[k].slice());
+  }
+  let html = '';
+  let pos = 0;
+  for (const [a, b] of merged) {
+    html += escapeHtml(text.slice(pos, a)) + '<mark>' + escapeHtml(text.slice(a, b)) + '</mark>';
+    pos = b;
+  }
+  return html + escapeHtml(text.slice(pos));
+}
+
+function formatPlaces(places) {
+  const byTicket = {};
+  for (const [t, num] of places) {
+    if (!byTicket[t]) byTicket[t] = [];
+    byTicket[t].push(num);
+  }
+  return Object.keys(byTicket).sort((a, b) => a - b)
+    .map(t => `Билет ${t}, вопрос ${byTicket[t].join(', ')}`)
+    .join('; ');
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// --- PIN ---
+function resetPin() {
+  pinValue = '';
+  pinChecking = false;
+  const dots = document.querySelectorAll('#pin-dots .pin-dot');
+  dots.forEach(d => d.classList.remove('filled', 'error'));
+}
+
+function updatePinDots() {
+  const dots = document.querySelectorAll('#pin-dots .pin-dot');
+  dots.forEach((d, i) => {
+    d.classList.remove('error');
+    d.classList.toggle('filled', i < pinValue.length);
+  });
+}
+
+function showPinError() {
+  const dots = document.querySelectorAll('#pin-dots .pin-dot');
+  dots.forEach(d => {
+    d.classList.remove('filled');
+    d.classList.add('error');
+  });
+  buzz(60);
+  setTimeout(() => {
+    pinChecking = false;
+    pinValue = '';
+    resetPin();
+  }, 400);
+}
+
+function pinScreenOpen() {
+  const el = document.getElementById('screen-pin');
+  return !!el && !el.classList.contains('hidden');
+}
+
+function onPinDigit(digit) {
+  if (pinChecking || pinValue.length >= 4) return;
+  pinValue += digit;
+  buzz(8);
+  updatePinDots();
+  if (pinValue.length === 4) {
+    pinChecking = true;
+    pinIsValid(pinValue).then(ok => {
+      if (!pinScreenOpen()) { pinChecking = false; return; } // ушли с экрана, пока считался хеш
+      if (ok) {
+        setTimeout(() => {
+          pinChecking = false;
+          resetPin();
+          openSearch();
+        }, 150);
+      } else {
+        showPinError();
+      }
+    });
+  }
+}
+
+function onPinBackspace() {
+  if (pinChecking || !pinValue.length) return;
+  pinValue = pinValue.slice(0, -1);
+  updatePinDots();
+}
+
+function openPinScreen() {
+  resetPin();
+  showScreen('pin');
+}
+
+// --- секретные тапы ---
+function onSecretTap() {
+  secretTapCount++;
+  if (secretTapTimer) clearTimeout(secretTapTimer);
+  secretTapTimer = setTimeout(() => { secretTapCount = 0; }, 2500);
+  if (secretTapCount >= SECRET_TAPS_NEEDED) {
+    secretTapCount = 0;
+    openPinScreen();
+  }
+}
+
+// --- поиск UI ---
+function openSearch() {
+  searchShowAll = false;
+  showScreen('search');
+  const input = document.getElementById('search-input');
+  const results = document.getElementById('search-results');
+  const meta = document.getElementById('search-meta');
+  if (meta) meta.textContent = '';
+  if (results) {
+    results.innerHTML = '<p class="search-empty">Введи часть вопроса или ответа</p>';
+  }
+  if (input) {
+    input.value = '';
+    // На телефоне автофокус сразу открывает клавиатуру и прячет подсказку —
+    // фокусируем только на устройствах с мышью/тачпадом.
+    const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    if (!coarse) setTimeout(() => input.focus(), 100);
+  }
+}
+
+function renderSearchResults(query) {
+  const box = document.getElementById('search-results');
+  const meta = document.getElementById('search-meta');
+  if (!box) return;
+
+  const q = (query || '').trim();
+  if (!q) {
+    if (meta) meta.textContent = '';
+    box.innerHTML = '<p class="search-empty">Введи часть вопроса или ответа</p>';
+    return;
+  }
+
+  const { results, total, stems } = searchQuestions(q, searchShowAll ? Infinity : SEARCH_LIMIT);
+  if (!results.length) {
+    if (meta) meta.textContent = '';
+    box.innerHTML = '<p class="search-empty">Ничего не найдено</p>';
+    return;
+  }
+
+  if (meta) {
+    meta.textContent = total > results.length
+      ? `Показано ${results.length} из ${total}`
+      : (total === 1 ? '1 совпадение' : `Совпадений: ${total}`);
+  }
+
+  let html = results.map(item => `
+    <article class="search-card">
+      <span class="search-places">${escapeHtml(formatPlaces(item.places))}</span>
+      <p class="search-q">${highlight(item.question, stems)}</p>
+      <p class="search-a">${highlight(item.correct, stems)}</p>
+    </article>
+  `).join('');
+
+  if (total > results.length) {
+    html += `<button type="button" id="search-show-all" class="search-more-btn">Показать все (${total})</button>`;
+  }
+  box.innerHTML = html;
+
+  const more = document.getElementById('search-show-all');
+  if (more) {
+    more.addEventListener('click', () => {
+      searchShowAll = true;
+      renderSearchResults(query);
+    });
+  }
+}
+
+function initSecretAndSearch() {
+  const zone = document.getElementById('secret-tap-zone');
+  if (zone) {
+    zone.addEventListener('click', onSecretTap);
+    // без pointer-events на img, чтобы клики шли в зону
+  }
+
+  document.querySelectorAll('.pin-key').forEach(btn => {
+    btn.addEventListener('click', () => onPinDigit(btn.dataset.digit));
+  });
+  const back = document.getElementById('pin-backspace');
+  if (back) back.addEventListener('click', onPinBackspace);
+
+  // клавиатура на PIN-экране
+  document.addEventListener('keydown', (e) => {
+    if (!pinScreenOpen()) return;
+    if (e.key >= '0' && e.key <= '9') {
+      e.preventDefault();
+      onPinDigit(e.key);
+    } else if (e.key === 'Backspace') {
+      e.preventDefault();
+      onPinBackspace();
+    } else if (e.key === 'Escape') {
+      goStart();
+    }
+  });
+
+  const input = document.getElementById('search-input');
+  if (input) {
+    let debounce = null;
+    input.addEventListener('input', () => {
+      searchShowAll = false;
+      clearTimeout(debounce);
+      debounce = setTimeout(() => renderSearchResults(input.value), 180);
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') goStart();
+    });
+  }
+}
+
 (async () => {
-  if (await loadData()) showScreen('start');
+  if (await loadData()) {
+    searchIndex = buildSearchIndex();
+    try { history.replaceState({ screen: 'start' }, ''); } catch (e) {}
+    showScreen('start', true);
+    initSecretAndSearch();
+  }
 })();
