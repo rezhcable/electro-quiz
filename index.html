@@ -16,14 +16,175 @@
   <title>Электробезопасность — Тестирование</title>
   <link rel="preload" href="assets/fonts/inter-var-latin-cyrillic.woff" as="font" type="font/woff" crossorigin />
   <link rel="stylesheet" href="css/tailwind.css" />
+  <style>
+    /* PIN + search: классы, которых нет в собранном tailwind.css */
+    .pin-pad {
+      display: grid;
+      grid-template-columns: repeat(3, 4.5rem);
+      gap: 0.85rem;
+      justify-content: center;
+    }
+    .pin-key, #pin-backspace, .pin-key-spacer {
+      width: 4.5rem;
+      height: 4.5rem;
+      border-radius: 9999px;
+      border: none;
+      font-size: 1.5rem;
+      font-weight: 500;
+      color: #f1f5f9;
+      background: #1e293b;
+      transition: background .15s, transform .1s;
+    }
+    .pin-key:active, #pin-backspace:active {
+      background: #334155;
+      transform: scale(0.96);
+    }
+    .pin-key-spacer {
+      visibility: hidden;
+      pointer-events: none;
+    }
+    #pin-backspace {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #cbd5e1;
+    }
+    .pin-dot {
+      width: 0.85rem;
+      height: 0.85rem;
+      border-radius: 9999px;
+      border: 2px solid #64748b;
+      background: transparent;
+      transition: background .15s, border-color .15s;
+    }
+    .pin-dot.filled {
+      background: #0ea5e9;
+      border-color: #0ea5e9;
+    }
+    .pin-dot.error {
+      background: #ef4444;
+      border-color: #ef4444;
+    }
+    #search-input {
+      width: 100%;
+      padding: 0.9rem 1rem 0.9rem 2.75rem;
+      border-radius: 1rem;
+      background: #0f172a;
+      border: 1px solid #334155;
+      color: #f1f5f9;
+      font-size: 1rem;
+      outline: none;
+    }
+    #search-input::placeholder { color: #94a3b8; }
+    #search-input:focus {
+      border-color: #0ea5e9;
+      box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.35);
+    }
+    .search-icon {
+      position: absolute;
+      left: 0.9rem;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 1.25rem;
+      height: 1.25rem;
+      color: #64748b;
+      pointer-events: none;
+    }
+    .search-card {
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      border-radius: 1rem;
+      padding: 1rem 1.1rem;
+      margin-bottom: 0.75rem;
+    }
+    .search-card:last-child { margin-bottom: 0; }
+    .search-places {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #38bdf8;
+      background: rgba(14, 165, 233, 0.12);
+      border: 1px solid rgba(14, 165, 233, 0.25);
+      border-radius: 9999px;
+      padding: 0.2rem 0.55rem;
+      margin-bottom: 0.65rem;
+    }
+    .search-q {
+      white-space: pre-line;
+      font-size: 0.95rem;
+      line-height: 1.45;
+      color: #e2e8f0;
+      margin: 0 0 0.75rem;
+    }
+    .search-a {
+      white-space: pre-line;
+      font-size: 0.95rem;
+      line-height: 1.45;
+      color: #34d399;
+      margin: 0;
+      padding-top: 0.65rem;
+      border-top: 1px solid #1e293b;
+    }
+    .search-empty {
+      text-align: center;
+      color: #94a3b8;
+      font-size: 0.95rem;
+      line-height: 1.5;
+      padding: 1.5rem 0.75rem 0.5rem;
+    }
+    .search-more-btn {
+      display: block;
+      width: 100%;
+      margin: 0.25rem 0 1rem;
+      padding: 0.85rem 1rem;
+      border-radius: 0.9rem;
+      border: 1px solid rgba(14, 165, 233, 0.45);
+      background: rgba(8, 47, 73, 0.5);
+      color: #7dd3fc;
+      font-size: 0.95rem;
+      font-weight: 600;
+      transition: background .15s, transform .1s;
+    }
+    .search-more-btn:hover { background: rgba(12, 74, 110, 0.6); }
+    .search-more-btn:active { transform: scale(0.98); }
+    .search-card mark {
+      background: rgba(250, 204, 21, 0.22);
+      color: #fde68a;
+      border-radius: 0.25rem;
+      padding: 0 0.1rem;
+    }
+    /* Основные кнопки: белый текст на sky-700 даёт контраст ≥ 5:1 */
+    .btn-sky { background: #0369a1; }
+    .btn-sky:hover { background: #0284c7; }
+    /* PIN: подсветка для клавиатуры и мыши, нормальная зона нажатия у «Отмена» */
+    .pin-key:focus-visible, #pin-backspace:focus-visible, .pin-cancel:focus-visible,
+    .search-more-btn:focus-visible {
+      outline: 2px solid #38bdf8;
+      outline-offset: 3px;
+    }
+    @media (hover: hover) {
+      .pin-key:hover, #pin-backspace:hover { background: #2a3a52; }
+    }
+    .pin-cancel {
+      margin-top: 2.5rem;
+      padding: 0.6rem 1.25rem;
+      border-radius: 0.75rem;
+      font-size: 0.875rem;
+      color: #94a3b8;
+      background: transparent;
+      transition: color .15s;
+    }
+    .pin-cancel:hover { color: #e2e8f0; }
+  </style>
 </head>
 <body class="bg-slate-950 text-slate-100 font-sans min-h-screen antialiased">
 
   <!-- ===== ЭКРАН: СТАРТ ===== -->
   <div id="screen-start" class="min-h-screen flex flex-col">
     <div class="flex-1 flex flex-col items-center justify-center px-5 py-10">
-      <div class="mb-6 animate-scale-in overflow-hidden rounded-2xl border border-slate-700 shadow-lg shadow-sky-500/10 w-44 sm:w-52">
-        <img src="assets/bandit.webp" alt="" class="w-full h-auto block" width="240" height="135" />
+      <div id="secret-tap-zone" class="mb-6 animate-scale-in overflow-hidden rounded-2xl border border-slate-700 shadow-lg shadow-sky-500/10 w-44 sm:w-52 cursor-default select-none" role="presentation">
+        <img src="assets/bandit.webp" alt="" class="w-full h-auto block pointer-events-none" width="480" height="258" draggable="false" />
       </div>
       <h1 class="text-2xl sm:text-3xl font-bold text-center mb-2 animate-slide-up">Электробезопасность</h1>
       <p class="text-slate-400 text-center mb-10 animate-slide-up">Тестирование по билетам</p>
@@ -83,7 +244,7 @@
       <!-- Навигация после ответа / в просмотре -->
       <div id="feedback" class="hidden mt-5 animate-slide-up">
         <!-- обычный режим: одна кнопка -->
-        <button id="btn-next" class="w-full py-3.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold active:scale-[0.98] transition-all">
+        <button id="btn-next" class="btn-sky w-full py-3.5 rounded-xl text-white font-semibold active:scale-[0.98] transition-all">
           Следующий вопрос →
         </button>
         <!-- режим просмотра: 3 в ряд -->
@@ -121,7 +282,7 @@
         <button onclick="startReview()" class="w-full py-3.5 rounded-xl bg-sky-950/50 hover:bg-sky-900/60 border border-sky-600/50 text-sky-300 font-semibold active:scale-[0.98] transition-all">
           Разбор вопросов
         </button>
-        <button onclick="startRandom()" class="w-full py-3.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold active:scale-[0.98] transition-all">
+        <button onclick="startRandom()" class="btn-sky w-full py-3.5 rounded-xl text-white font-semibold active:scale-[0.98] transition-all">
           Ещё один случайный
         </button>
         <button onclick="goStart()" class="w-full py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-medium active:scale-[0.98] transition-all">
@@ -131,6 +292,56 @@
     </div>
   </div>
 
+
+  <!-- ===== ЭКРАН: PIN (секретный вход) ===== -->
+  <div id="screen-pin" class="min-h-screen flex flex-col hidden">
+    <div class="flex-1 flex flex-col items-center justify-center px-5 py-10">
+      <p class="text-slate-400 text-sm mb-6">Введите код</p>
+      <div id="pin-dots" class="flex gap-3 mb-10" aria-live="polite">
+        <span class="pin-dot"></span>
+        <span class="pin-dot"></span>
+        <span class="pin-dot"></span>
+        <span class="pin-dot"></span>
+      </div>
+      <div class="pin-pad">
+        <button type="button" class="pin-key" data-digit="1">1</button>
+        <button type="button" class="pin-key" data-digit="2">2</button>
+        <button type="button" class="pin-key" data-digit="3">3</button>
+        <button type="button" class="pin-key" data-digit="4">4</button>
+        <button type="button" class="pin-key" data-digit="5">5</button>
+        <button type="button" class="pin-key" data-digit="6">6</button>
+        <button type="button" class="pin-key" data-digit="7">7</button>
+        <button type="button" class="pin-key" data-digit="8">8</button>
+        <button type="button" class="pin-key" data-digit="9">9</button>
+        <button type="button" class="pin-key-spacer" aria-hidden="true" tabindex="-1"></button>
+        <button type="button" class="pin-key" data-digit="0">0</button>
+        <button type="button" id="pin-backspace" aria-label="Стереть">
+          <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z"/></svg>
+        </button>
+      </div>
+      <button type="button" onclick="goStart()" class="pin-cancel">Отмена</button>
+    </div>
+  </div>
+
+  <!-- ===== ЭКРАН: ПОИСК (админ) ===== -->
+  <div id="screen-search" class="min-h-screen flex flex-col hidden">
+    <header class="sticky top-0 z-10 glass border-b border-slate-800 px-4 pb-4 pt-[calc(1rem+env(safe-area-inset-top))]">
+      <div class="flex items-center gap-3 max-w-lg mx-auto">
+        <button type="button" onclick="goStart()" aria-label="Назад" class="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center transition shrink-0">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+        </button>
+        <h2 class="text-lg font-semibold">Поиск ответов</h2>
+      </div>
+    </header>
+    <div class="flex-1 px-4 max-w-lg mx-auto w-full flex flex-col" style="min-height:0;padding-top:1.25rem;padding-bottom:2rem">
+      <div class="relative" style="margin-bottom:1rem">
+        <input id="search-input" type="text" inputmode="search" enterkeyhint="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Часть вопроса или ответа…" />
+        <svg class="search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+      </div>
+      <p id="search-meta" class="text-xs text-slate-400" style="min-height:1.1rem;margin:0 0 0.75rem"></p>
+      <div id="search-results" style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
+    </div>
+  </div>
 
   <!-- Модалка выхода -->
   <div id="exit-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-5" role="dialog" aria-modal="true" aria-labelledby="exit-modal-title">
